@@ -1,5 +1,6 @@
 import json
 import os
+os.environ["VLLM_WORKER_MULTIPROC_METHOD"]="spawn"
 import torch
 from tqdm import tqdm
 import argparse
@@ -7,7 +8,7 @@ import argparse
 from nltk.tokenize import sent_tokenize
 from sentence_transformers import SentenceTransformer
 from vllm import LLM
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, AutoModelForCausalLM
 
 from utils.detect import detect_paragraph
 from utils.rand import secret_mbit
@@ -19,6 +20,7 @@ if __name__ == "__main__":
     parser.add_argument("--log_dir", type=str, default="logs/opt-1.3b_log")
     parser.add_argument("--model_name", type=str, default=None)
     parser.add_argument("--api_base", type=str, default=None, help="base url to generate by OpenAI API")
+    parser.add_argument("--backend", type=str, default="vllm", help="backend for generation, select from [\"openai\", \"vllm\", \"hf\"]")
     parser.add_argument("--tokenizer_name", type=str, default=None)
     parser.add_argument("--max_context", type=int, default=1024)
     parser.add_argument("--detect_origin", type=bool, default=False, help="whether including result of natural text")
@@ -37,8 +39,15 @@ if __name__ == "__main__":
         with open(f"{args.log_dir}/{args.sub_dir}/detect/config.json", "w", encoding="utf-8") as f:
             json.dump(args.__dict__, f, ensure_ascii=False, indent=4)
     # inference backend
-    if args.api_base is None:
-        llm = LLM(model=args.model_name, gpu_memory_utilization=0.9, tensor_parallel_size=1)
+    llm=None
+    model=None
+    if args.backend=="hf":
+        model=AutoModelForCausalLM.from_pretrained(args.model_name,torch_dtype="auto").eval().to("cuda")
+    elif args.backend=="vllm":
+        # os.environ["CUDA_VISIBLE_DEVICES"] = args.device0
+        llm = LLM(model=args.model_name, gpu_memory_utilization=0.7, tensor_parallel_size=1)
+    elif args.backend=="openai":
+        api_base=args.api_base
     # embedder
     if "sonar" in args.embedder_name:
         from sonar.inference_pipelines.text import TextToEmbeddingModelPipeline
@@ -70,6 +79,9 @@ if __name__ == "__main__":
             print(f"Sample {i} not found!")
             continue
         print(f"Processing sample {i}")
+        # if os.path.exists(f"{log_dir}/{sub_dir}/detect/{i}.json"):
+        #     print(f"Sample {i} already processed, skip!")
+        #     continue
         with open(f"{log_dir}/{sub_dir}/{i}.json", "r", encoding="utf-8") as f:
             generated_log = json.load(f)
         gen_sentences=[d['text'] for d in generated_log['log']]
@@ -81,7 +93,7 @@ if __name__ == "__main__":
         if len(detect_sentences) != len(gen_sentences): # segmentation inconsistent
             print(f"WARNING: Sample {i}, generated sentecnes {len(gen_sentences)}, detected sentecnes {len(detect_sentences)}!!!")
 
-        watermark_log = detect_paragraph(detect_sentences, num_samples=args.num_samples, api_base=args.api_base, model_name=args.model_name, llm=llm, embedder=embedder, pivot=args.pivot, median_method=args.median_method, debug=True, dedup=args.dedup, msig=args.msig)
+        watermark_log = detect_paragraph(gen_sentences, num_samples=args.num_samples, llm=llm, embedder=embedder, pivot=args.pivot, median_method=args.median_method, debug=True, dedup=args.dedup, msig=args.msig, model=model, tokenizer=tokenizer)
         is_watermarked2=watermark_log["is_watermarked"]
         watermark_pos.append(is_watermarked2)
         print(f"Watermarked text detection finished!")
@@ -101,7 +113,7 @@ if __name__ == "__main__":
             if len(origin_sens)>12:
                 origin_sens=origin_sens[:12]
 
-            origin_log = detect_paragraph(origin_sens, num_samples=args.num_samples, api_base=args.api_base, model_name=args.model_name, llm=llm, embedder=embedder, pivot=args.pivot, median_method=args.median_method, debug=True, dedup=args.dedup, msig=args.msig)
+            origin_log = detect_paragraph(origin_sens, num_samples=args.num_samples, api_base=args.api_base, model_name=args.model_name, llm=llm, embedder=embedder, pivot=args.pivot, median_method=args.median_method, debug=True, dedup=args.dedup, msig=args.msig,model=model, tokenizer=tokenizer)
             is_watermarked1=origin_log["is_watermarked"]
             origin_pos.append(is_watermarked1)
             print(f"Origin text detection finished!")

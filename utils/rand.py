@@ -12,7 +12,7 @@ import copy
 #########################
 # Random utils
 #########################
-with open("secret_sbit.json",'r') as f:
+with open("secret_mbit.json",'r') as f:
     secret_sbit = json.load(f)
 
 class SecretBits:

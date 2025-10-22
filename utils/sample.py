@@ -10,7 +10,6 @@ from nltk.tokenize import sent_tokenize
 from openai import OpenAI
 from transformers import StoppingCriteria, StoppingCriteriaList
 from transformers.tokenization_utils import PreTrainedTokenizer
-from sonar.inference_pipelines.text import TextToEmbeddingModelPipeline
 from vllm import SamplingParams
 import torch.nn.functional as F
 
@@ -33,10 +32,7 @@ class SentenceEndCriteria(StoppingCriteria):
         return len(sent_tokenize(text)) > self.current_num_sentences + 1
 
 def get_text_embeddings(texts: List[str], embedder):
-    if isinstance(embedder, TextToEmbeddingModelPipeline):
-        embeddings = embedder.predict(texts, source_lang="eng_Latn", max_seq_len=512).cpu()
-    else:
-        embeddings = embedder.encode(texts, convert_to_tensor=True).cpu()
+    embeddings = embedder.encode(texts, convert_to_tensor=True).cpu()
     return embeddings
 
 def get_cosine_similarities(A, B):
@@ -372,9 +368,9 @@ def sample_next_sentence_msignal(
         print(f"Generated texts (head): {gen_texts[:3]}")
         print(f"Next sample:\n Text: {next_sample['text']}\n Cossim: {next_sample['cossim']}\n Rand_flag: {next_sample['rand_flag']}")
         if not parallel:
-            print(f"Step-wise medians (on alive set): {next_sample.get('step_medians')}")
+            print(f"Step-wise medians: {next_sample.get('step_medians')}")
         else:
-            print(f"Median_cossim (global): {next_sample['sampled_median']}")
+            print(f"Median_cossim: {next_sample['sampled_median']}")
         print("-------------")
 
     return next_sample
